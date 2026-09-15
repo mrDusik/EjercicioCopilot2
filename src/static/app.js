@@ -2,7 +2,25 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitiesList = document.getElementById("activities-list");
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
+  const loginForm = document.getElementById("login-form");
+  const logoutButton = document.getElementById("logout-btn");
+  const authStatus = document.getElementById("auth-status");
+  const teacherRequired = document.getElementById("teacher-required");
   const messageDiv = document.getElementById("message");
+  let authToken = localStorage.getItem("teacherToken");
+
+  function authHeaders() {
+    return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+  }
+
+  function updateAuthState(username = localStorage.getItem("teacherUsername")) {
+    const isTeacher = Boolean(authToken);
+    authStatus.textContent = isTeacher ? `Teacher: ${username}` : "Student view";
+    signupForm.classList.toggle("hidden", !isTeacher);
+    loginForm.classList.toggle("hidden", isTeacher);
+    logoutButton.classList.toggle("hidden", !isTeacher);
+    teacherRequired.classList.toggle("hidden", isTeacher);
+  }
 
   // Function to fetch activities from API
   async function fetchActivities() {
@@ -12,6 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Clear loading message
       activitiesList.innerHTML = "";
+      activitySelect.innerHTML = '<option value="">-- Select an activity --</option>';
 
       // Populate activities list
       Object.entries(activities).forEach(([name, details]) => {
@@ -30,7 +49,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 ${details.participants
                   .map(
                     (email) =>
-                      `<li><span class="participant-email">${email}</span><button class="delete-btn" data-activity="${name}" data-email="${email}">❌</button></li>`
+                      `<li><span class="participant-email">${email}</span>${
+                        authToken
+                          ? `<button class="delete-btn" data-activity="${name}" data-email="${email}">Remove</button>`
+                          : ""
+                      }</li>`
                   )
                   .join("")}
               </ul>
@@ -80,6 +103,7 @@ document.addEventListener("DOMContentLoaded", () => {
         )}/unregister?email=${encodeURIComponent(email)}`,
         {
           method: "DELETE",
+          headers: authHeaders(),
         }
       );
 
@@ -124,6 +148,7 @@ document.addEventListener("DOMContentLoaded", () => {
         )}/signup?email=${encodeURIComponent(email)}`,
         {
           method: "POST",
+          headers: authHeaders(),
         }
       );
 
@@ -155,6 +180,47 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    try {
+      const response = await fetch("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: document.getElementById("username").value,
+          password: document.getElementById("password").value,
+        }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || "Login failed");
+      }
+
+      authToken = result.token;
+      localStorage.setItem("teacherToken", authToken);
+      localStorage.setItem("teacherUsername", result.username);
+      loginForm.reset();
+      updateAuthState(result.username);
+      fetchActivities();
+    } catch (error) {
+      messageDiv.textContent = error.message;
+      messageDiv.className = "error";
+      messageDiv.classList.remove("hidden");
+    }
+  });
+
+  logoutButton.addEventListener("click", async () => {
+    await fetch("/auth/logout", { method: "POST", headers: authHeaders() });
+    authToken = null;
+    localStorage.removeItem("teacherToken");
+    localStorage.removeItem("teacherUsername");
+    updateAuthState();
+    fetchActivities();
+  });
+
   // Initialize app
+  updateAuthState();
   fetchActivities();
 });
